@@ -1,0 +1,4 @@
+# Main dependencies
+pandas==2.2.0
+openpyxl==3.1.2
+pyarrow==15.0.0
