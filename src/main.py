@@ -153,6 +153,73 @@ def check_duplicates(new_data: pd.DataFrame, target_file: str) -> pd.DataFrame:
         return new_data
 
 
+def generate_analytics(df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    """
+    Генерирует аналитику по гарантиям.
+
+    Args:
+        df (pd.DataFrame): Основные данные о гарантиях
+
+    Returns:
+        Dict[str, pd.DataFrame]: Словарь с листами аналитики
+    """
+    print("Начинаем генерацию аналитики...")
+
+    # Статистика по уровням поддержки
+    print("Генерируем статистику по уровням поддержки...")
+    support_stats = df["Уровень поддержки"].value_counts().reset_index()
+    support_stats.columns = ["Уровень поддержки", "Количество"]
+    support_stats["Процент"] = (support_stats["Количество"] / len(df) * 100).round(1)
+    print(f"Статистика по уровням поддержки:\n{support_stats}")
+
+    # Статистика по срокам
+    print("Генерируем статистику по срокам...")
+    term_stats = df["Срок"].value_counts().reset_index()
+    term_stats.columns = ["Срок (лет)", "Количество"]
+    term_stats["Процент"] = (term_stats["Количество"] / len(df) * 100).round(1)
+    print(f"Статистика по срокам:\n{term_stats}")
+
+    # Статистика по годам окончания гарантии
+    print("Генерируем статистику по годам окончания...")
+    df["Год окончания"] = pd.to_datetime(df["Дата окончания"]).dt.year
+    year_stats = df["Год окончания"].value_counts().sort_index().reset_index()
+    year_stats.columns = ["Год окончания", "Количество"]
+    year_stats["Процент"] = (year_stats["Количество"] / len(df) * 100).round(1)
+    print(f"Статистика по годам окончания:\n{year_stats}")
+
+    # Общая статистика
+    print("Генерируем общую статистику...")
+    total_stats = pd.DataFrame(
+        {
+            "Показатель": [
+                "Всего записей",
+                "Уникальных SN",
+                "Средний срок гарантии (лет)",
+                "Минимальная дата начала",
+                "Максимальная дата окончания",
+            ],
+            "Значение": [
+                len(df),
+                df["SN OY"].nunique(),
+                df["Срок"].astype(float).mean().round(1),
+                df["Дата начала"].min(),
+                df["Дата окончания"].max(),
+            ],
+        }
+    )
+    print(f"Общая статистика:\n{total_stats}")
+
+    result = {
+        "Общая статистика": total_stats,
+        "По уровням поддержки": support_stats,
+        "По срокам": term_stats,
+        "По годам окончания": year_stats,
+    }
+
+    print("Аналитика успешно сгенерирована")
+    return result
+
+
 def save_to_excel(df: pd.DataFrame, target_file: str) -> None:
     """
     Сохраняет данные в целевой Excel файл.
@@ -162,10 +229,53 @@ def save_to_excel(df: pd.DataFrame, target_file: str) -> None:
         target_file (str): Путь к целевому файлу
     """
     try:
-        df.to_excel(target_file, index=False)
+        print("Начинаем сохранение данных в Excel...")
+        # Создаем Excel writer
+        with pd.ExcelWriter(target_file, engine="openpyxl") as writer:
+            print("Сохраняем основные данные...")
+            # Сохраняем основные данные
+            df.to_excel(writer, sheet_name="Гарантии", index=False)
+
+            print("Генерируем аналитику...")
+            # Генерируем и сохраняем аналитику
+            analytics = generate_analytics(df)
+            print(f"Создаем листы аналитики: {list(analytics.keys())}")
+
+            for sheet_name, data in analytics.items():
+                print(f"Сохраняем лист '{sheet_name}'...")
+                data.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                # Получаем лист для форматирования
+                worksheet = writer.sheets[sheet_name]
+
+                # Форматируем заголовки
+                for cell in worksheet[1]:
+                    cell.font = cell.font.copy(bold=True)
+                    cell.fill = PatternFill(
+                        start_color="E0E0E0", end_color="E0E0E0", fill_type="solid"
+                    )
+
+                # Автоматическая ширина столбцов
+                for column in worksheet.columns:
+                    max_length = 0
+                    column = [cell for cell in column]
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = max_length + 2
+                    worksheet.column_dimensions[column[0].column_letter].width = (
+                        adjusted_width
+                    )
+
+                print(f"Лист '{sheet_name}' отформатирован")
+
         print(f"Данные успешно сохранены в файл {target_file}")
     except Exception as e:
         print(f"Ошибка при сохранении файла: {e}")
+        raise  # Добавляем raise для отладки
 
 
 def colorize_excel(target_file: str) -> None:
@@ -196,7 +306,7 @@ def colorize_excel(target_file: str) -> None:
     duplicate_sn_color: str = "FFC7CE"  # светло-красный
 
     wb = load_workbook(target_file)
-    ws: Worksheet = wb.active
+    ws: Worksheet = wb["Гарантии"]  # Теперь явно указываем лист "Гарантии"
 
     # Найдём индексы нужных столбцов по заголовкам
     header: Dict[str, int] = {
